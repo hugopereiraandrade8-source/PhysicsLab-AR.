@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full select-none">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Laboratório de Física AR - Circuitos Elétricos</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js para renderização 3D AR -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js para gráficos de física -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom Styles -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none;
+            overflow: hidden;
+            background-color: #090d16;
+            color: #f3f4f6;
+        }
+        canvas {
+            touch-action: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-btn {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            transition: all 0.2s ease;
+        }
+        .glass-btn:active {
+            transform: scale(0.95);
+            background: rgba(51, 65, 85, 0.9);
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        #canvas-container, #canvas-container canvas { touch-action: none; }
+        #camera-permission-panel { z-index: 60; }
+        @media (max-width: 700px) {
+            header {
+                padding: 8px !important;
+                display: flex !important;
+                flex-direction: column;
+                align-items: stretch !important;
+                gap: 7px;
+            }
+            header > div:first-child {
+                align-self: flex-start;
+                padding: 6px 10px !important;
+                gap: 8px !important;
+            }
+            header > div:first-child p { display: none; }
+            header > div:first-child h1 { font-size: 12px !important; }
+            header > div:first-child .p-2 { padding: 5px !important; }
+            header > div:last-child {
+                width: 100%;
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 6px !important;
+            }
+            #level-select {
+                flex: 1 1 105px;
+                min-width: 0;
+                max-width: 170px;
+                padding: 8px 5px !important;
+                font-size: 10px !important;
+            }
+            header button {
+                padding: 8px !important;
+                border-radius: 12px !important;
+            }
+            header button svg { width: 17px !important; height: 17px !important; }
+            #status-toast { top: 105px !important; width: calc(100% - 24px); }
+            #status-toast > div { justify-content: center; text-align: center; }
+            #graph-panel {
+                top: 105px !important;
+                right: 8px !important;
+                left: 8px !important;
+                width: auto !important;
+                max-width: 420px;
+                margin: 0 auto;
+                max-height: 58vh;
+                overflow-y: auto;
+            }
+            #inspector-panel {
+                top: 105px !important;
+                left: 8px !important;
+                width: min(290px, calc(100% - 16px)) !important;
+                max-height: 58vh;
+                overflow-y: auto;
+            }
+            #component-palette, .palette-shell { bottom: 7px !important; }
+            #camera-permission-panel .permission-card { width: calc(100% - 28px); padding: 20px; }
+        }
+        @media (max-width: 380px) {
+            header > div:last-child { gap: 4px !important; }
+            header button { padding: 7px !important; }
+            #level-select { max-width: 145px; font-size: 9px !important; }
+            .palette-btn { min-width: 53px !important; }
+        }
+    </style>
+</head>
+<body class="h-full w-full relative overflow-hidden bg-slate-950">
+
+    <!-- Video Feed Background (AR Camera Input) -->
+    <video id="camera-feed" class="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none hidden" autoplay playsinline muted></video>
+
+    <!-- Canvas fallback grid when camera is disabled -->
+    <div id="grid-bg" class="absolute inset-0 z-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+
+    <!-- 3D AR Scene Canvas Overlay -->
+    <div id="canvas-container" class="absolute inset-0 z-10 w-full h-full"></div>
+
+    <!-- UI Overlay Header -->
+    <header class="absolute top-0 left-0 right-0 z-30 p-4 flex justify-between items-center pointer-events-none">
+        <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-3 pointer-events-auto shadow-lg">
+            <div class="p-2 bg-indigo-600/30 text-indigo-400 rounded-xl border border-indigo-500/30">
+                <i data-lucide="zap" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold tracking-wide text-white">PhysicsLab AR</h1>
+                <p id="level-subtitle" class="text-[10px] text-slate-400">Nível 1: Circuito Simples & Eletrodinâmica</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 pointer-events-auto">
+            <!-- Level Selector Dropdown -->
+            <select id="level-select" class="glass-btn px-2.5 py-2 rounded-2xl text-xs font-semibold text-indigo-300 bg-slate-900/80 border border-indigo-500/30 focus:outline-none cursor-pointer">
+                <option value="1">Nível 1: Circuito Simples</option>
+                <option value="2">Nível 2: Associação (Série / Paralelo)</option>
+                <option value="3">Nível 3: Armazenamento (RC)</option>
+            </select>
+            <button id="toggle-delete-mode-btn" title="Modo Remover Elementos" class="glass-btn p-3 rounded-2xl text-slate-400 hover:text-rose-400 shadow-lg flex items-center justify-center transition-colors">
+                <i data-lucide="scissors" class="w-5 h-5"></i>
+            </button>
+            <button id="toggle-camera-btn" title="Alternar Câmera AR" class="glass-btn p-3 rounded-2xl text-slate-200 hover:text-white shadow-lg flex items-center justify-center">
+                <i data-lucide="camera" class="w-5 h-5"></i>
+            </button>
+            <button id="toggle-graph-btn" title="Gráfico Voltagem x Tempo" class="glass-btn p-3 rounded-2xl text-cyan-400 hover:text-cyan-300 shadow-lg flex items-center justify-center">
+                <i data-lucide="line-chart" class="w-5 h-5"></i>
+            </button>
+            <button id="clear-all-btn" title="Limpar Bancada" class="glass-btn p-3 rounded-2xl text-rose-400 hover:text-rose-300 shadow-lg flex items-center justify-center">
+                <i data-lucide="trash-2" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Floating Wire Connection Indicator / Notification -->
+    <div id="status-toast" class="absolute top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none opacity-0 transition-opacity duration-300">
+        <div class="glass-panel px-4 py-2 rounded-full text-xs font-medium text-cyan-300 flex items-center gap-2 border border-cyan-500/30 shadow-xl">
+            <span id="toast-ping" class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+            <span id="toast-text">Selecione o segundo terminal para conectar o fio</span>
+        </div>
+    </div>
+
+    <!-- Live Graph Modal Overlay -->
+    <div id="graph-panel" class="absolute right-4 top-20 z-30 w-80 sm:w-96 glass-panel rounded-2xl p-4 shadow-2xl hidden transition-all pointer-events-auto">
+        <div class="flex justify-between items-center mb-3">
+            <div class="flex items-center gap-2">
+                <i data-lucide="activity" class="w-4 h-4 text-cyan-400"></i>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-200">Leitura de Tensão V(t)</h3>
+            </div>
+            <button id="close-graph-btn" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="w-full h-44">
+            <canvas id="vt-chart"></canvas>
+        </div>
+        <div class="mt-2 text-[10px] text-slate-400 flex justify-between">
+            <span>Tensão Max: <strong id="graph-max-v" class="text-cyan-400">0.0V</strong></span>
+            <span>Corrente Est.: <strong id="graph-curr-i" class="text-amber-400">0.00A</strong></span>
+        </div>
+    </div>
+
+    <!-- Component Inspector Modal -->
+    <div id="inspector-panel" class="absolute left-4 top-20 z-30 w-72 glass-panel rounded-2xl p-4 shadow-2xl hidden pointer-events-auto">
+        <div class="flex justify-between items-center mb-3">
+            <h3 id="inspector-title" class="text-xs font-bold uppercase tracking-wider text-indigo-400">Propriedades</h3>
+            <button id="close-inspector-btn" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="space-y-4 text-xs">
+            <div class="flex gap-2">
+                <button id="rotate-comp-btn" class="flex-1 py-1.5 px-3 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-300 flex items-center justify-center gap-1.5 font-medium transition-all">
+                    <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i> Rotacionar 90°
+                </button>
+            </div>
+            <div id="prop-field-1" class="space-y-1">
+                <div class="flex justify-between text-slate-300">
+                    <label id="prop-label-1">Valor</label>
+                    <span id="prop-val-1" class="font-bold text-indigo-300">12V</span>
+                </div>
+                <input type="range" id="prop-slider-1" class="w-full accent-indigo-500 bg-slate-700 h-1.5 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div id="circuit-info-box" class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] space-y-1">
+                <div class="flex justify-between text-slate-400"><span>Corrente no Ramo:</span> <span id="info-current" class="text-amber-400 font-mono">0.00 A</span></div>
+                <div class="flex justify-between text-slate-400"><span>Queda de Tensão (U):</span> <span id="info-voltage" class="text-cyan-400 font-mono">0.00 V</span></div>
+                <div class="flex justify-between text-slate-400"><span>Potência Dissipada (P):</span> <span id="info-power" class="text-emerald-400 font-mono">0.00 W</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Palette Bar -->
+    <div id="component-palette" class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-[95%] max-w-lg pointer-events-auto">
+        <div class="glass-panel p-2.5 rounded-3xl shadow-2xl flex items-center justify-between gap-1 sm:gap-2 overflow-x-auto no-scrollbar border border-slate-700/50">
+            <button data-spawn="battery" class="palette-btn flex-1 min-w-[58px] py-2 px-1 rounded-2xl bg-slate-800/80 hover:bg-indigo-600/30 hover:border-indigo-500/50 border border-transparent transition-all flex flex-col items-center gap-1 text-slate-300 hover:text-white group">
+                <div class="p-1.5 rounded-xl bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition-transform">
+                    <i data-lucide="battery-charging" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] font-medium">Bateria</span>
+            </button>
+            <button data-spawn="resistor" class="palette-btn flex-1 min-w-[58px] py-2 px-1 rounded-2xl bg-slate-800/80 hover:bg-amber-600/30 hover:border-amber-500/50 border border-transparent transition-all flex flex-col items-center gap-1 text-slate-300 hover:text-white group">
+                <div class="p-1.5 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform">
+                    <i data-lucide="activity" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] font-medium">Resistor</span>
+            </button>
+            <button data-spawn="bulb" class="palette-btn flex-1 min-w-[58px] py-2 px-1 rounded-2xl bg-slate-800/80 hover:bg-yellow-600/30 hover:border-yellow-500/50 border border-transparent transition-all flex flex-col items-center gap-1 text-slate-300 hover:text-white group">
+                <div class="p-1.5 rounded-xl bg-yellow-500/10 text-yellow-400 group-hover:scale-110 transition-transform">
+                    <i data-lucide="lightbulb" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] font-medium">Lâmpada</span>
+            </button>
+            <button data-spawn="switch" class="palette-btn flex-1 min-w-[58px] py-2 px-1 rounded-2xl bg-slate-800/80 hover:bg-emerald-600/30 hover:border-emerald-500/50 border border-transparent transition-all flex flex-col items-center gap-1 text-slate-300 hover:text-white group">
+                <div class="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition-transform">
+                    <i data-lucide="toggle-right" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] font-medium">Chave</span>
+            </button>
+            <button data-spawn="capacitor" class="palette-btn flex-1 min-w-[58px] py-2 px-1 rounded-2xl bg-slate-800/80 hover:bg-cyan-600/30 hover:border-cyan-500/50 border border-transparent transition-all flex flex-col items-center gap-1 text-slate-300 hover:text-white group">
+                <div class="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition-transform">
+                    <i data-lucide="layers" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] font-medium">Capacitor</span>
+            </button>
+            <button data-spawn="voltmeter" class="palette-btn flex-1 min-w-[58px] py-2 px-1 rounded-2xl bg-slate-800/80 hover:bg-purple-600/30 hover:border-purple-500/50 border border-transparent transition-all flex flex-col items-center gap-1 text-slate-300 hover:text-white group">
+                <div class="p-1.5 rounded-xl bg-purple-500/10 text-purple-400 group-hover:scale-110 transition-transform">
+                    <i data-lucide="gauge" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] font-medium">Voltímetro</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Camera permission explanation shown before the browser permission prompt -->
+    <div id="camera-permission-panel" class="absolute inset-0 hidden items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+        <div class="permission-card glass-panel w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-indigo-400/30">
+            <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-300">
+                <i data-lucide="camera" class="h-7 w-7"></i>
+            </div>
+            <h2 class="text-center text-lg font-bold text-white">Ativar realidade aumentada</h2>
+            <p class="mt-2 text-center text-sm leading-relaxed text-slate-300">O PhysicsLab precisa acessar a câmera traseira para mostrar a bancada virtual sobre a imagem do ambiente.</p>
+            <p class="mt-3 rounded-xl border border-slate-700 bg-slate-900/70 p-3 text-xs leading-relaxed text-slate-400">Ao continuar, o navegador poderá exibir uma segunda janela de autorização. Toque em <strong class="text-white">Permitir</strong>. Assim que a autorização for concedida, a câmera será iniciada automaticamente.</p>
+            <div class="mt-5 flex gap-2">
+                <button id="cancel-camera-permission" type="button" class="flex-1 rounded-xl border border-slate-600 px-3 py-3 text-sm font-semibold text-slate-300">Cancelar</button>
+                <button id="allow-camera-permission" type="button" class="flex-1 rounded-xl bg-indigo-600 px-3 py-3 text-sm font-semibold text-white shadow-lg">Permitir câmera</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Engine Script -->
+    <script>
+        lucide.createIcons();
+
+        const state = {
+            components: [],
+            wires: [],
+            selectedNode: null,
+            selectedComponent: null,
+            cameraActive: false,
+            cameraStream: null,
+            draggedObject: null,
+            planeIntersect: new THREE.Vector3(),
+            time: 0,
+            currentLevel: 1,
+            capacitorCharge: 0,
+            lastTapTime: 0,
+            lastTapTarget: null,
+            deleteMode: false,
+            isPinching: false,
+            pinchDistance: 0
+        };
+
+        let scene, camera, renderer, raycaster, mouse, plane;
+        let chartInstance = null;
+        const interactiveObjects = [];
+        const terminalNodes = [];
+
+        const container = document.getElementById('canvas-container');
+        const videoElement = document.getElementById('camera-feed');
+        const toggleCameraBtn = document.getElementById('toggle-camera-btn');
+        const cameraPermissionPanel = document.getElementById('camera-permission-panel');
+        const allowCameraPermissionBtn = document.getElementById('allow-camera-permission');
+        const cancelCameraPermissionBtn = document.getElementById('cancel-camera-permission');
+        const activeTouchPointers = new Map();
+        const toggleDeleteModeBtn = document.getElementById('toggle-delete-mode-btn');
+        const toggleGraphBtn = document.getElementById('toggle-graph-btn');
+        const closeGraphBtn = document.getElementById('close-graph-btn');
+        const graphPanel = document.getElementById('graph-panel');
+        const clearAllBtn = document.getElementById('clear-all-btn');
+        const statusToast = document.getElementById('status-toast');
+        const toastText = document.getElementById('toast-text');
+        const inspectorPanel = document.getElementById('inspector-panel');
+        const closeInspectorBtn = document.getElementById('close-inspector-btn');
+        const rotateCompBtn = document.getElementById('rotate-comp-btn');
+        const levelSelect = document.getElementById('level-select');
+        const levelSubtitle = document.getElementById('level-subtitle');
+
+        function init3D() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 12, 10);
+            camera.zoom = 1;
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(10, 20, 10);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            const gridHelper = new THREE.GridHelper(30, 30, 0x3b82f6, 0x1e293b);
+            gridHelper.position.y = -0.01;
+            scene.add(gridHelper);
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('orientationchange', () => setTimeout(onWindowResize, 150));
+            setupInteractions();
+            initChart();
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function createTerminalNode(parent, x, z, nodeIndex) {
+            const geo = new THREE.SphereGeometry(0.28, 24, 24);
+            const mat = new THREE.MeshStandardMaterial({ 
+                color: 0x38bdf8, 
+                emissive: 0x0284c7, 
+                emissiveIntensity: 0.6,
+                roughness: 0.2 
+            });
+            const node = new THREE.Mesh(geo, mat);
+            node.position.set(x, 0.25, z);
+            node.userData = { isNode: true, parentComponent: parent, index: nodeIndex };
+            parent.add(node);
+            terminalNodes.push(node);
+            return node;
+        }
+
+        function buildComponent3D(type) {
+            const group = new THREE.Group();
+            group.userData = { type: type, id: Math.random().toString(36).substring(2, 9), value: 0 };
+
+            switch (type) {
+                case 'battery':
+                    const batGeo = new THREE.CylinderGeometry(0.6, 0.6, 1.8, 24);
+                    const batMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.6 });
+                    const batMesh = new THREE.Mesh(batGeo, batMat);
+                    batMesh.rotation.z = Math.PI / 2;
+                    group.add(batMesh);
+
+                    const capGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.2, 16);
+                    const capMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.1 });
+                    const capMesh = new THREE.Mesh(capGeo, capMat);
+                    capMesh.rotation.z = Math.PI / 2;
+                    capMesh.position.x = 1.0;
+                    group.add(capMesh);
+
+                    group.userData.value = 12;
+                    createTerminalNode(group, -1.1, 0, 0);
+                    createTerminalNode(group, 1.1, 0, 1);
+                    break;
+
+                case 'resistor':
+                    const resGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.6, 16);
+                    const resMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 });
+                    const resMesh = new THREE.Mesh(resGeo, resMat);
+                    resMesh.rotation.z = Math.PI / 2;
+                    group.add(resMesh);
+
+                    [ -0.3, 0, 0.3 ].forEach((pos, idx) => {
+                        const ringGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.1, 16);
+                        const ringMat = new THREE.MeshBasicMaterial({ color: [0xef4444, 0x10b981, 0x3b82f6][idx] });
+                        const ring = new THREE.Mesh(ringGeo, ringMat);
+                        ring.rotation.z = Math.PI / 2;
+                        ring.position.x = pos;
+                        group.add(ring);
+                    });
+
+                    group.userData.value = 100;
+                    createTerminalNode(group, -1.1, 0, 0);
+                    createTerminalNode(group, 1.1, 0, 1);
+                    break;
+
+                case 'bulb':
+                    const baseGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.5, 16);
+                    const baseMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8 });
+                    const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+                    baseMesh.position.y = 0.25;
+                    group.add(baseMesh);
+
+                    const glassGeo = new THREE.SphereGeometry(0.65, 24, 24);
+                    const glassMat = new THREE.MeshPhysicalMaterial({
+                        color: 0xffffff,
+                        transmission: 0.8,
+                        opacity: 1,
+                        transparent: true,
+                        roughness: 0.15
+                    });
+                    const glassMesh = new THREE.Mesh(glassGeo, glassMat);
+                    glassMesh.position.y = 0.9;
+                    group.add(glassMesh);
+
+                    const glowGeo = new THREE.SphereGeometry(0.72, 24, 24);
+                    const glowMat = new THREE.MeshBasicMaterial({
+                        color: 0xfde047,
+                        transparent: true,
+                        opacity: 0,
+                        blending: THREE.AdditiveBlending,
+                        side: THREE.BackSide
+                    });
+                    const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+                    glowMesh.position.y = 0.9;
+                    group.add(glowMesh);
+                    group.userData.glowMat = glowMat;
+
+                    const filamentGeo = new THREE.SphereGeometry(0.2, 16, 16);
+                    const filamentMat = new THREE.MeshStandardMaterial({
+                        color: 0xfff176,
+                        emissive: 0xfbc02d,
+                        emissiveIntensity: 0
+                    });
+                    const filament = new THREE.Mesh(filamentGeo, filamentMat);
+                    filament.position.y = 0.9;
+                    group.add(filament);
+                    group.userData.filamentMat = filamentMat;
+
+                    const light = new THREE.PointLight(0xfef08a, 0, 12);
+                    light.position.y = 0.9;
+                    group.add(light);
+                    group.userData.pointLight = light;
+
+                    group.userData.value = 50;
+                    createTerminalNode(group, -0.8, 0, 0);
+                    createTerminalNode(group, 0.8, 0, 1);
+                    break;
+
+                case 'switch':
+                    const plateGeo = new THREE.BoxGeometry(1.6, 0.15, 0.8);
+                    const plateMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+                    const plate = new THREE.Mesh(plateGeo, plateMat);
+                    group.add(plate);
+
+                    const leverGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.0, 12);
+                    const leverMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.5 });
+                    const lever = new THREE.Mesh(leverGeo, leverMat);
+                    lever.position.set(-0.4, 0.4, 0);
+                    lever.rotation.z = -Math.PI / 4;
+                    group.add(lever);
+                    group.userData.leverMesh = lever;
+
+                    group.userData.isOpen = true;
+                    createTerminalNode(group, -0.7, 0, 0);
+                    createTerminalNode(group, 0.7, 0, 1);
+                    break;
+
+                case 'capacitor':
+                    [-0.25, 0.25].forEach(x => {
+                        const capCyl = new THREE.CylinderGeometry(0.3, 0.3, 1.0, 16);
+                        const capMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.7, roughness: 0.2 });
+                        const mesh = new THREE.Mesh(capCyl, capMat);
+                        mesh.position.set(x, 0.5, 0);
+                        group.add(mesh);
+                    });
+
+                    group.userData.value = 1000;
+                    createTerminalNode(group, -0.9, 0, 0);
+                    createTerminalNode(group, 0.9, 0, 1);
+                    break;
+
+                case 'voltmeter':
+                    const bodyGeo = new THREE.BoxGeometry(1.5, 1.0, 0.8);
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x581c87 });
+                    const body = new THREE.Mesh(bodyGeo, bodyMat);
+                    body.position.y = 0.5;
+                    group.add(body);
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256; canvas.height = 128;
+                    const ctx = canvas.getContext('2d');
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const textGeo = new THREE.PlaneGeometry(1.0, 0.45);
+                    const textMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+                    const textMesh = new THREE.Mesh(textGeo, textMat);
+                    textMesh.position.set(0, 0.6, 0.42);
+                    group.add(textMesh);
+
+                    group.userData.canvasCtx = ctx;
+                    group.userData.canvasTexture = texture;
+                    group.userData.readout = 0;
+
+                    updateVoltmeterDisplay(group, 0);
+                    createTerminalNode(group, -0.9, 0, 0);
+                    createTerminalNode(group, 0.9, 0, 1);
+                    break;
+            }
+
+            group.traverse(child => {
+                if (child.isMesh && !child.userData.isNode) {
+                    child.userData.parentComponent = group;
+                }
+            });
+
+            return group;
+        }
+
+        function updateVoltmeterDisplay(voltmeterGroup, voltageVal) {
+            const ctx = voltmeterGroup.userData.canvasCtx;
+            const texture = voltmeterGroup.userData.canvasTexture;
+            if (!ctx || !texture) return;
+
+            ctx.clearRect(0, 0, 256, 128);
+            ctx.fillStyle = '#0284c7';
+            ctx.fillRect(0, 0, 256, 128);
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(6, 6, 244, 116);
+
+            ctx.font = 'bold 54px monospace';
+            ctx.fillStyle = '#38bdf8';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${voltageVal.toFixed(1)}V`, 128, 64);
+
+            texture.needsUpdate = true;
+        }
+
+        function spawnComponent(type) {
+            const comp = buildComponent3D(type);
+            comp.position.set((Math.random() - 0.5) * 3, 0, (Math.random() - 0.5) * 3);
+            scene.add(comp);
+            state.components.push(comp);
+            interactiveObjects.push(comp);
+            return comp;
+        }
+
+        function createWire(nodeA, nodeB) {
+            const existingWireIndex = state.wires.findIndex(w => 
+                (w.nodeA === nodeA && w.nodeB === nodeB) || (w.nodeA === nodeB && w.nodeB === nodeA)
+            );
+
+            if (existingWireIndex !== -1) {
+                scene.remove(state.wires[existingWireIndex].mesh);
+                state.wires.splice(existingWireIndex, 1);
+                showToast("Fio removido!");
+                return;
+            }
+
+            const curve = new THREE.CatmullRomCurve3([
+                nodeA.getWorldPosition(new THREE.Vector3()),
+                nodeA.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.5, 0)),
+                nodeB.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.5, 0)),
+                nodeB.getWorldPosition(new THREE.Vector3())
+            ]);
+
+            const geo = new THREE.TubeGeometry(curve, 20, 0.08, 8, false);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.3, metalness: 0.5 });
+            const wireMesh = new THREE.Mesh(geo, mat);
+            wireMesh.userData = { isWire: true };
+
+            scene.add(wireMesh);
+            const wireObj = { mesh: wireMesh, nodeA: nodeA, nodeB: nodeB };
+            wireMesh.userData.wireObj = wireObj;
+            state.wires.push(wireObj);
+            showToast("Fio conectado!");
+        }
+
+        function updateAllWires() {
+            state.wires.forEach(w => {
+                const posA = w.nodeA.getWorldPosition(new THREE.Vector3());
+                const posB = w.nodeB.getWorldPosition(new THREE.Vector3());
+                const dist = posA.distanceTo(posB);
+
+                const curve = new THREE.CatmullRomCurve3([
+                    posA,
+                    new THREE.Vector3(posA.x, posA.y + Math.min(dist * 0.3, 1.2), posA.z),
+                    new THREE.Vector3(posB.x, posB.y + Math.min(dist * 0.3, 1.2), posB.z),
+                    posB
+                ]);
+
+                w.mesh.geometry.dispose();
+                w.mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.08, 8, false);
+            });
+        }
+
+        function showToast(message) {
+            toastText.textContent = message;
+            statusToast.classList.remove('opacity-0');
+            setTimeout(() => {
+                statusToast.classList.add('opacity-0');
+            }, 2500);
+        }
+
+        function setupInteractions() {
+            window.addEventListener('pointerdown', onPointerDown);
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+            window.addEventListener('pointercancel', onPointerUp);
+            container.addEventListener('wheel', (event) => {
+                event.preventDefault();
+                const factor = event.deltaY < 0 ? 1.08 : 0.92;
+                camera.zoom = THREE.MathUtils.clamp(camera.zoom * factor, 0.55, 2.8);
+                camera.updateProjectionMatrix();
+            }, { passive: false });
+
+            document.querySelectorAll('.palette-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const type = btn.getAttribute('data-spawn');
+                    if (type) spawnComponent(type);
+                });
+            });
+
+            closeInspectorBtn.addEventListener('click', () => inspectorPanel.classList.add('hidden'));
+
+            rotateCompBtn.addEventListener('click', () => {
+                if (state.selectedComponent) {
+                    state.selectedComponent.rotation.y += Math.PI / 2;
+                }
+            });
+
+            const propSlider1 = document.getElementById('prop-slider-1');
+            propSlider1.addEventListener('input', (e) => {
+                if (!state.selectedComponent) return;
+                const val = parseFloat(e.target.value);
+                state.selectedComponent.userData.value = val;
+                const unit = state.selectedComponent.userData.type === 'battery' ? 'V' : 
+                             state.selectedComponent.userData.type === 'capacitor' ? 'µF' : 'Ω';
+                document.getElementById('prop-val-1').textContent = `${val}${unit}`;
+            });
+        }
+
+        function onPointerDown(event) {
+            if (event.pointerType === 'touch') {
+                activeTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+                if (activeTouchPointers.size >= 2) {
+                    state.isPinching = true;
+                    state.draggedObject = null;
+                    const pts = Array.from(activeTouchPointers.values());
+                    state.pinchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    return;
+                }
+            }
+            if (state.isPinching) return;
+            if (event.target.closest('header') || event.target.closest('#inspector-panel') || 
+                event.target.closest('#graph-panel') || event.target.closest('.palette-btn')) {
+                return;
+            }
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const nodeIntersects = raycaster.intersectObjects(terminalNodes);
+            if (nodeIntersects.length > 0) {
+                const clickedNode = nodeIntersects[0].object;
+
+                if (!state.selectedNode) {
+                    state.selectedNode = clickedNode;
+                    clickedNode.material.color.setHex(0x22c55e);
+                    clickedNode.material.emissive.setHex(0x16a34a);
+                    showToast("Selecione o segundo terminal para conectar");
+                } else if (state.selectedNode === clickedNode) {
+                    state.selectedNode.material.color.setHex(0x38bdf8);
+                    state.selectedNode.material.emissive.setHex(0x0284c7);
+                    state.selectedNode = null;
+                } else {
+                    createWire(state.selectedNode, clickedNode);
+                    state.selectedNode.material.color.setHex(0x38bdf8);
+                    state.selectedNode.material.emissive.setHex(0x0284c7);
+                    state.selectedNode = null;
+                }
+                return;
+            }
+
+            const wireMeshes = state.wires.map(w => w.mesh);
+            const wireIntersects = raycaster.intersectObjects(wireMeshes);
+            if (wireIntersects.length > 0) {
+                const wireObj = wireIntersects[0].object.userData.wireObj;
+                if (wireObj) {
+                    scene.remove(wireObj.mesh);
+                    const idx = state.wires.indexOf(wireObj);
+                    if (idx !== -1) state.wires.splice(idx, 1);
+                    showToast("Fio removido!");
+                    return;
+                }
+            }
+
+            const componentMeshes = [];
+            state.components.forEach(c => {
+                c.traverse(child => {
+                    if (child.isMesh && !child.userData.isNode) componentMeshes.push(child);
+                });
+            });
+
+            const compIntersects = raycaster.intersectObjects(componentMeshes);
+            if (compIntersects.length > 0) {
+                const hitObject = compIntersects[0].object;
+                const parentComp = hitObject.userData.parentComponent || hitObject.parent;
+
+                if (state.deleteMode) {
+                    removeComponent(parentComp);
+                    showToast("Componente removido!");
+                    return;
+                }
+
+                if (parentComp.userData.type === 'switch') {
+                    parentComp.userData.isOpen = !parentComp.userData.isOpen;
+                    if (parentComp.userData.leverMesh) {
+                        parentComp.userData.leverMesh.rotation.z = parentComp.userData.isOpen ? -Math.PI / 4 : 0;
+                    }
+                    showToast(parentComp.userData.isOpen ? "Chave Aberta" : "Chave Fechada");
+                }
+
+                const now = performance.now();
+                if (state.lastTapTarget === parentComp && (now - state.lastTapTime) < 300) {
+                    parentComp.rotation.y += Math.PI / 2;
+                }
+                state.lastTapTime = now;
+                state.lastTapTarget = parentComp;
+
+                state.draggedObject = parentComp;
+                openInspector(parentComp);
+            }
+        }
+
+        function removeComponent(comp) {
+            const compNodes = comp.children.filter(c => c.userData && c.userData.isNode);
+            const wiresToRemove = state.wires.filter(w => compNodes.includes(w.nodeA) || compNodes.includes(w.nodeB));
+            
+            wiresToRemove.forEach(w => {
+                scene.remove(w.mesh);
+                const idx = state.wires.indexOf(w);
+                if (idx !== -1) state.wires.splice(idx, 1);
+            });
+
+            compNodes.forEach(node => {
+                const nodeIdx = terminalNodes.indexOf(node);
+                if (nodeIdx !== -1) terminalNodes.splice(nodeIdx, 1);
+            });
+
+            scene.remove(comp);
+            const compIdx = state.components.indexOf(comp);
+            if (compIdx !== -1) state.components.splice(compIdx, 1);
+
+            if (state.selectedComponent === comp) {
+                inspectorPanel.classList.add('hidden');
+                state.selectedComponent = null;
+            }
+        }
+
+        function onPointerMove(event) {
+            if (event.pointerType === 'touch' && activeTouchPointers.has(event.pointerId)) {
+                activeTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+                if (activeTouchPointers.size >= 2) {
+                    const pts = Array.from(activeTouchPointers.values());
+                    const nextDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    if (state.pinchDistance > 0 && nextDistance > 0) {
+                        const scale = nextDistance / state.pinchDistance;
+                        camera.zoom = THREE.MathUtils.clamp(camera.zoom * scale, 0.55, 2.8);
+                        camera.updateProjectionMatrix();
+                    }
+                    state.pinchDistance = nextDistance;
+                    state.isPinching = true;
+                    state.draggedObject = null;
+                    return;
+                }
+            }
+            if (state.isPinching || !state.draggedObject) return;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            if (raycaster.ray.intersectPlane(plane, state.planeIntersect)) {
+                state.draggedObject.position.x = state.planeIntersect.x;
+                state.draggedObject.position.z = state.planeIntersect.z;
+            }
+        }
+
+        function onPointerUp(event) {
+            if (event && event.pointerType === 'touch') {
+                activeTouchPointers.delete(event.pointerId);
+                if (activeTouchPointers.size < 2) {
+                    state.isPinching = false;
+                    state.pinchDistance = 0;
+                }
+            }
+            state.draggedObject = null;
+        }
+
+        function openInspector(comp) {
+            state.selectedComponent = comp;
+            inspectorPanel.classList.remove('hidden');
+
+            const title = document.getElementById('inspector-title');
+            const label1 = document.getElementById('prop-label-1');
+            const val1 = document.getElementById('prop-val-1');
+            const slider1 = document.getElementById('prop-slider-1');
+            const propField1 = document.getElementById('prop-field-1');
+
+            propField1.classList.remove('hidden');
+            title.textContent = comp.userData.type.toUpperCase();
+
+            switch (comp.userData.type) {
+                case 'battery':
+                    label1.textContent = "Tensão (V)";
+                    slider1.min = 1; slider1.max = 48; slider1.step = 1;
+                    slider1.value = comp.userData.value;
+                    val1.textContent = `${comp.userData.value}V`;
+                    break;
+                case 'resistor':
+                case 'bulb':
+                    label1.textContent = "Resistência (Ω)";
+                    slider1.min = 1; slider1.max = 500; slider1.step = 1;
+                    slider1.value = comp.userData.value;
+                    val1.textContent = `${comp.userData.value}Ω`;
+                    break;
+                case 'capacitor':
+                    label1.textContent = "Capacitância (µF)";
+                    slider1.min = 100; slider1.max = 5000; slider1.step = 100;
+                    slider1.value = comp.userData.value;
+                    val1.textContent = `${comp.userData.value}µF`;
+                    break;
+                default:
+                    propField1.classList.add('hidden');
+                    break;
+            }
+        }
+
+        // Verifica se existe um caminho entre dois terminais usando apenas
+        // fios realmente conectados e componentes eletricamente condutores.
+        // A bateria entra como uma aresta especial: ela precisa fazer parte
+        // do caminho para que exista uma malha alimentada pela fonte.
+        function findPathWithBattery(startNode, endNode, excludedComponent = null) {
+            const adjacency = new Map();
+            const addEdge = (a, b, isBattery = false) => {
+                if (!a || !b) return;
+                if (!adjacency.has(a)) adjacency.set(a, []);
+                if (!adjacency.has(b)) adjacency.set(b, []);
+                adjacency.get(a).push({ node: b, isBattery });
+                adjacency.get(b).push({ node: a, isBattery });
+            };
+
+            // Fios: só conectam os dois terminais explicitamente selecionados.
+            state.wires.forEach(w => addEdge(w.nodeA, w.nodeB, false));
+
+            // Ligações internas dos componentes de dois terminais.
+            state.components.forEach(comp => {
+                if (comp === excludedComponent) return;
+                const nodes = comp.children.filter(c => c.userData && c.userData.isNode);
+                if (nodes.length !== 2) return;
+
+                const type = comp.userData.type;
+
+                // A bateria é tratada separadamente para identificarmos
+                // se ela participa efetivamente da malha.
+                if (type === 'battery') {
+                    addEdge(nodes[0], nodes[1], true);
+                    return;
+                }
+
+                // Chave aberta interrompe completamente o caminho.
+                if (type === 'switch' && comp.userData.isOpen) return;
+
+                // Lâmpadas, resistores e capacitores são tratados como
+                // elementos de dois terminais no modelo simplificado.
+                if (['switch', 'bulb', 'resistor', 'capacitor'].includes(type)) {
+                    addEdge(nodes[0], nodes[1], false);
+                }
+            });
+
+            if (!adjacency.has(startNode) || !adjacency.has(endNode)) {
+                return { found: false, usesBattery: false };
+            }
+
+            const queue = [{ node: startNode, usesBattery: false }];
+            const visited = new Map([[startNode, false]]);
+
+            while (queue.length) {
+                const item = queue.shift();
+                if (item.node === endNode) {
+                    return { found: true, usesBattery: item.usesBattery };
+                }
+
+                for (const edge of adjacency.get(item.node) || []) {
+                    const nextUsesBattery = item.usesBattery || edge.isBattery;
+                    if (!visited.has(edge.node)) {
+                        visited.set(edge.node, nextUsesBattery);
+                        queue.push({ node: edge.node, usesBattery: nextUsesBattery });
+                    } else if (nextUsesBattery && visited.get(edge.node) === false) {
+                        // Permite atualizar um nó já alcançado quando agora
+                        // encontramos um caminho que também passa pela bateria.
+                        visited.set(edge.node, true);
+                        queue.push({ node: edge.node, usesBattery: true });
+                    }
+                }
+            }
+
+            return { found: false, usesBattery: false };
+        }
+
+        function getComponentNodes(comp) {
+            return comp.children.filter(c => c.userData && c.userData.isNode);
+        }
+
+        function solveCircuitPhysics(deltaTime) {
+            const battery = state.components.find(c => c.userData.type === 'battery');
+            const bulbs = state.components.filter(c => c.userData.type === 'bulb');
+            const resistors = state.components.filter(c => c.userData.type === 'resistor');
+            const capacitors = state.components.filter(c => c.userData.type === 'capacitor');
+            const voltmeters = state.components.filter(c => c.userData.type === 'voltmeter');
+
+            let isLoopClosed = false;
+            let batteryNodes = [];
+
+            if (battery) {
+                batteryNodes = getComponentNodes(battery);
+                if (batteryNodes.length === 2) {
+                    // A malha precisa ligar os dois polos da bateria por fora.
+                    // Excluímos a própria bateria nessa verificação.
+                    const returnPath = findPathWithBattery(
+                        batteryNodes[0], batteryNodes[1], battery
+                    );
+                    isLoopClosed = returnPath.found;
+                }
+            }
+
+            const sourceVoltage = battery ? battery.userData.value : 0;
+
+            // Resistência equivalente simplificada: adequada para circuitos
+            // em série. A topologia real já é usada para decidir se cada
+            // lâmpada pertence a uma malha fechada.
+            let totalResistance =
+                resistors.reduce((sum, r) => sum + Math.max(0, r.userData.value), 0) +
+                bulbs.reduce((sum, b) => sum + Math.max(0, b.userData.value), 0);
+            if (totalResistance <= 0) totalResistance = 10;
+
+            let current = 0;
+
+            if (isLoopClosed && sourceVoltage > 0) {
+                if (capacitors.length > 0) {
+                    const cap = capacitors[0];
+                    const C = Math.max(cap.userData.value, 1) * 1e-6;
+                    const tau = Math.max(totalResistance * C, 0.05);
+
+                    // Integração estável do carregamento RC.
+                    const decay = Math.exp(-Math.max(deltaTime, 0) / tau);
+                    state.capacitorCharge =
+                        sourceVoltage -
+                        (sourceVoltage - state.capacitorCharge) * decay;
+
+                    current = Math.max(
+                        0,
+                        ((sourceVoltage - state.capacitorCharge) / totalResistance)
+                    );
+                } else {
+                    current = sourceVoltage / totalResistance;
+                    state.capacitorCharge = 0;
+                }
+            } else {
+                current = 0;
+                // Sem uma malha de carga, a fonte não injeta corrente.
+                // O capacitor mantém sua carga; não a descarregamos
+                // artificialmente sem existir um caminho de descarga.
+            }
+
+            // Cada lâmpada é avaliada individualmente. Ela só pode acender
+            // se, ao retirar sua própria ligação interna, ainda houver um
+            // caminho entre seus terminais que passe pela bateria.
+            bulbs.forEach(bulb => {
+                const nodes = getComponentNodes(bulb);
+                let bulbHasClosedPoweredLoop = false;
+
+                if (nodes.length === 2 && sourceVoltage > 0) {
+                    const loop = findPathWithBattery(nodes[0], nodes[1], bulb);
+                    bulbHasClosedPoweredLoop = loop.found && loop.usesBattery;
+                }
+
+                const bulbCurrent = bulbHasClosedPoweredLoop ? current : 0;
+                const bulbResistance = Math.max(0, bulb.userData.value || 50);
+                const dissipatedPower = bulbResistance * bulbCurrent * bulbCurrent;
+                const nominalPower = 3.0;
+                const normalizedPower = bulbHasClosedPoweredLoop
+                    ? Math.min(dissipatedPower / nominalPower, 2.5)
+                    : 0;
+
+                if (bulb.userData.filamentMat && bulb.userData.pointLight) {
+                    bulb.userData.filamentMat.emissiveIntensity = normalizedPower * 4.0;
+                    bulb.userData.filamentMat.color.setHex(
+                        normalizedPower > 0.01 ? 0xfff59d : 0x64748b
+                    );
+                    bulb.userData.pointLight.intensity = normalizedPower * 8.0;
+                    bulb.userData.pointLight.distance =
+                        normalizedPower > 0.01 ? (6 + normalizedPower * 4) : 0;
+
+                    if (bulb.userData.glowMat) {
+                        bulb.userData.glowMat.opacity =
+                            normalizedPower > 0.01
+                                ? Math.min(normalizedPower * 0.45, 0.7)
+                                : 0;
+                    }
+                }
+            });
+
+            voltmeters.forEach(vm => {
+                const readVoltage = capacitors.length > 0
+                    ? state.capacitorCharge
+                    : (isLoopClosed ? sourceVoltage : 0);
+                updateVoltmeterDisplay(vm, readVoltage);
+            });
+
+            const activePower = isLoopClosed ? totalResistance * current * current : 0;
+            document.getElementById('info-current').textContent = `${current.toFixed(2)} A`;
+            document.getElementById('info-voltage').textContent =
+                `${(isLoopClosed ? current * totalResistance : 0).toFixed(1)} V`;
+            document.getElementById('info-power').textContent = `${activePower.toFixed(2)} W`;
+            document.getElementById('graph-curr-i').textContent = `${current.toFixed(2)} A`;
+            document.getElementById('graph-max-v').textContent =
+                `${(isLoopClosed ? sourceVoltage : 0).toFixed(1)} V`;
+
+            if (chartInstance && !graphPanel.classList.contains('hidden')) {
+                const readV = capacitors.length > 0
+                    ? state.capacitorCharge
+                    : (isLoopClosed ? sourceVoltage : 0);
+                pushChartData(readV);
+            }
+        }
+
+        function loadLevelPreset(level) {
+            clearAllBtn.click();
+            state.currentLevel = parseInt(level);
+
+            if (state.currentLevel === 1) {
+                levelSubtitle.textContent = "Nível 1: Circuito Simples (Bateria, Lâmpada, Interruptor)";
+                const bat = spawnComponent('battery');
+                const bulb = spawnComponent('bulb');
+                const sw = spawnComponent('switch');
+
+                bat.position.set(-2, 0, 0);
+                bulb.position.set(0, 0, 0);
+                sw.position.set(2, 0, 0);
+            } else if (state.currentLevel === 2) {
+                levelSubtitle.textContent = "Nível 2: Associação de Resistores e Lâmpadas";
+                const bat = spawnComponent('battery');
+                const r1 = spawnComponent('resistor');
+                const r2 = spawnComponent('resistor');
+                const bulb = spawnComponent('bulb');
+                const sw = spawnComponent('switch');
+
+                bat.position.set(-2.5, 0, 0);
+                r1.position.set(-0.8, 0, -1);
+                r2.position.set(-0.8, 0, 1);
+                bulb.position.set(1.0, 0, 0);
+                sw.position.set(2.6, 0, 0);
+            } else if (state.currentLevel === 3) {
+                levelSubtitle.textContent = "Nível 3: Armazenamento (Circuito RC Transitório)";
+                const bat = spawnComponent('battery');
+                const res = spawnComponent('resistor');
+                const cap = spawnComponent('capacitor');
+                const bulb = spawnComponent('bulb');
+                const sw = spawnComponent('switch');
+                const vm = spawnComponent('voltmeter');
+
+                bat.position.set(-3, 0, 0);
+                res.position.set(-1.2, 0, 0);
+                cap.position.set(0.5, 0, 0);
+                bulb.position.set(2.0, 0, 0);
+                sw.position.set(3.4, 0, 0);
+                vm.position.set(0.5, 0, 2);
+            }
+            showToast(`Nível ${state.currentLevel} Carregado! Conecte as bolinhas.`);
+        }
+
+        levelSelect.addEventListener('change', (e) => {
+            loadLevelPreset(e.target.value);
+        });
+
+        function initChart() {
+            const ctx = document.getElementById('vt-chart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(30).fill(''),
+                    datasets: [{
+                        label: 'Tensão V(t)',
+                        data: Array(30).fill(0),
+                        borderColor: '#38bdf8',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        fill: true,
+                        backgroundColor: 'rgba(56, 189, 248, 0.1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { display: false },
+                        y: { 
+                            min: 0, 
+                            max: 58,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        function pushChartData(val) {
+            const data = chartInstance.data.datasets[0].data;
+            data.shift();
+            data.push(val);
+            chartInstance.update('none');
+        }
+
+        toggleGraphBtn.addEventListener('click', () => {
+            graphPanel.classList.toggle('hidden');
+        });
+        closeGraphBtn.addEventListener('click', () => {
+            graphPanel.classList.add('hidden');
+        });
+
+        toggleDeleteModeBtn.addEventListener('click', () => {
+            state.deleteMode = !state.deleteMode;
+            if (state.deleteMode) {
+                toggleDeleteModeBtn.classList.add('bg-rose-600', 'text-white', 'border-rose-500');
+                toggleDeleteModeBtn.classList.remove('text-slate-400');
+                showToast("Modo remoção ativado: Toque em um componente para apagá-lo");
+            } else {
+                toggleDeleteModeBtn.classList.remove('bg-rose-600', 'text-white', 'border-rose-500');
+                toggleDeleteModeBtn.classList.add('text-slate-400');
+                showToast("Modo remoção desativado");
+            }
+        });
+
+        clearAllBtn.addEventListener('click', () => {
+            state.components.forEach(c => scene.remove(c));
+            state.wires.forEach(w => scene.remove(w.mesh));
+            state.components = [];
+            state.wires = [];
+            terminalNodes.length = 0;
+            interactiveObjects.length = 0;
+            inspectorPanel.classList.add('hidden');
+            showToast("Bancada Limpa");
+        });
+
+        function showCameraPermission() {
+            cameraPermissionPanel.classList.remove('hidden');
+            cameraPermissionPanel.classList.add('flex');
+        }
+
+        function hideCameraPermission() {
+            cameraPermissionPanel.classList.add('hidden');
+            cameraPermissionPanel.classList.remove('flex');
+        }
+
+        async function requestCameraAccess() {
+            hideCameraPermission();
+
+            // getUserMedia só funciona em HTTPS (ou localhost) e o pedido precisa
+            // acontecer diretamente após o toque do usuário no botão.
+            if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showToast('A câmera exige HTTPS ou localhost. Abra o PhysicsLab por um endereço seguro.');
+                return;
+            }
+
+            allowCameraPermissionBtn.disabled = true;
+            allowCameraPermissionBtn.textContent = 'Solicitando acesso...';
+            let pendingStream = null;
+            try {
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                    });
+                } catch (firstError) {
+                    if (firstError && firstError.name === 'NotAllowedError') throw firstError;
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+                }
+
+                pendingStream = stream;
+                videoElement.srcObject = stream;
+                videoElement.classList.remove('hidden');
+                await videoElement.play();
+                document.getElementById('grid-bg').classList.add('hidden');
+                state.cameraStream = stream;
+                pendingStream = null;
+                state.cameraActive = true;
+                toggleCameraBtn.classList.add('bg-indigo-600', 'text-white');
+                showToast('Câmera ativada! Bancada virtual sobre a imagem ao vivo.');
+
+                // Se o usuário revogar a permissão ou o dispositivo interromper
+                // a captura, a interface volta ao modo de bancada virtual.
+                stream.getVideoTracks().forEach(track => {
+                    track.addEventListener('ended', () => {
+                        if (state.cameraStream === stream) stopCamera();
+                    }, { once: true });
+                });
+            } catch (err) {
+                if (pendingStream) pendingStream.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+                videoElement.classList.add('hidden');
+                console.error('Erro ao abrir a câmera:', err);
+                let message = 'Não foi possível abrir a câmera.';
+                if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+                    message = 'Acesso negado. Autorize a câmera nas permissões do Chrome e tente novamente.';
+                } else if (err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) {
+                    message = 'Nenhuma câmera foi encontrada neste dispositivo.';
+                } else if (err && (err.name === 'NotReadableError' || err.name === 'TrackStartError')) {
+                    message = 'A câmera está sendo usada por outro aplicativo. Feche-o e tente novamente.';
+                } else if (err && err.name === 'OverconstrainedError') {
+                    message = 'A câmera não aceitou as configurações solicitadas.';
+                }
+                showToast(message);
+            } finally {
+                allowCameraPermissionBtn.disabled = false;
+                allowCameraPermissionBtn.textContent = 'Permitir câmera';
+            }
+        }
+
+        function stopCamera() {
+            if (state.cameraStream) {
+                state.cameraStream.getTracks().forEach(track => track.stop());
+                state.cameraStream = null;
+            }
+            videoElement.pause();
+            videoElement.srcObject = null;
+            videoElement.classList.add('hidden');
+            document.getElementById('grid-bg').classList.remove('hidden');
+            state.cameraActive = false;
+            toggleCameraBtn.classList.remove('bg-indigo-600', 'text-white');
+        }
+
+        function toggleCamera() {
+            if (!state.cameraActive) {
+                showCameraPermission();
+            } else {
+                stopCamera();
+                showToast('Câmera desativada');
+            }
+        }
+
+        toggleCameraBtn.addEventListener('click', toggleCamera);
+        allowCameraPermissionBtn.addEventListener('click', requestCameraAccess);
+        cancelCameraPermissionBtn.addEventListener('click', hideCameraPermission);
+        cameraPermissionPanel.addEventListener('click', (event) => {
+            if (event.target === cameraPermissionPanel) hideCameraPermission();
+        });
+
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+            const deltaTime = (now - lastTime) / 1000;
+            lastTime = now;
+            state.time += deltaTime;
+
+            solveCircuitPhysics(deltaTime);
+
+            state.components.forEach(comp => {
+                comp.position.y = Math.sin(state.time * 2 + comp.position.x) * 0.05;
+            });
+
+            updateAllWires();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            init3D();
+            loadLevelPreset(1);
+        });
+    </script>
+</body>
+</html>
